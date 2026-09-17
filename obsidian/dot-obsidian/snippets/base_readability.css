@@ -1,0 +1,23 @@
+/* Baseline readability. Not tied to any plugin. */
+
+.markdown-preview-view,
+.markdown-source-view.mod-cm6 {
+  --line-height-normal: 1.6;
+}
+
+/* Callouts read better with a little more room. */
+.callout {
+  padding: 0.75rem 1rem;
+}
+
+/* Frontmatter is reference data, not prose. Make it recede. */
+.metadata-container {
+  font-size: 0.85em;
+  opacity: 0.75;
+}
+
+/* Long tables should scroll rather than squeeze the page. */
+.markdown-rendered table {
+  display: block;
+  overflow-x: auto;
+}

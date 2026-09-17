@@ -1,0 +1,17 @@
+# Records which files were open. Leaks project and file names.
+dot-obsidian/workspace.json
+dot-obsidian/workspace-mobile.json
+
+# Plugin state. Frequently contains note text.
+dot-obsidian/plugins/*/data.json
+
+# Plugin and theme bundles. Large, and reinstallable from the plugin list.
+dot-obsidian/plugins/*/main.js
+dot-obsidian/plugins/*/styles.css
+dot-obsidian/themes/
+
+# Local AI caches. These embed note content.
+.smart-env/
+
+# Attachments never belong in this repo.
+attachments/

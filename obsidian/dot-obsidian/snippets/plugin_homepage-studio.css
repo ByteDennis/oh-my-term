@@ -1,0 +1,15 @@
+/* Homepage Studio: calmer heatmap, tighter task list.
+   One snippet per plugin. When something looks wrong, disable one file and you
+   know immediately which plugin caused it. */
+
+.homepage-studio-heatmap {
+  --hs-cell-gap: 3px;
+}
+
+.homepage-studio-task-list .task-item {
+  padding-block: 2px;
+}
+
+.homepage-studio-section + .homepage-studio-section {
+  margin-top: 1.25rem;
+}
