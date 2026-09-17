@@ -875,24 +875,47 @@ tmux 有 `M-h/j/k/l` 直接切 pane（不用前缀），herdr 的 `focus_pane_*`
 **已验证**（Neovim 0.10.2，见 §6.4）：tabline 渲染、点击区域生成、`C-a` 前缀在
 normal 和 terminal 两种模式下都能注册、`C-a C-a` 能送出字面 `C-a`。
 
-**未验证、且已知写得不干净**：`pmap` 里 terminal 模式那段同时处理字符串和函数两种
-action，字符串会走 `vim.cmd("normal! <cmd>vsplit<cr>")`——这是错的。
-落地时把所有 action **统一写成 Lua 函数**：
+**已修复**：`pmap` 原来同时处理字符串和函数两种 action，字符串会走
+`vim.cmd("normal! <cmd>vsplit<cr>")`——这是错的。`windows-nvim` 分支里所有 action
+已统一写成 Lua 函数，normal 和 terminal 两条路径共用同一个函数：
 
 ```lua
-pmap("|", function() vim.cmd.vsplit() end, "竖分屏")
+pmap("|", function() vim.cmd.vsplit() end, "split vertical")
 ```
 
-这样 normal 和 terminal 两条路径共用同一个函数，`pmap` 里的类型判断也可以整个删掉。
-**这是整份代码里唯一需要你亲手在 Windows 上跑一遍的地方。**
+实现见 `windows-nvim` 分支的 `nvim/lua/workbench/init.lua`。
+23 个前缀键在 normal 和 terminal 两种模式下均已验证注册成功。
 
-### 9.6 本机 nvim 还是 0.10.2
+**仍需你在真实 Windows 上确认的**：Windows Terminal 是否把 `C-a`、`Alt+hjkl`
+原样传给 Git Bash（§8.1），以及 `options.lua` 里那组 Git Bash `shell` 设置
+（§8.2）会不会影响插件的 shell 调用。这两项没有 Windows 机器就没法验。
+
+### 9.6 会话恢复：Windows 强制重启
+
+Windows 强制重启会直接杀掉进程，**`VimLeavePre` 根本不会触发**，所以任何
+「退出时保存 session」的方案都救不了你。`windows-nvim` 分支的
+`nvim/lua/workbench/session.lua` 用三重保存解决：
+
+| 触发 | 时机 |
+|---|---|
+| 定时器 | 每 60 秒 |
+| 布局变化 | `TabNew` / `TabClosed` / `BufWritePost` 之后 2 秒（去抖） |
+| 正常退出 | `VimLeavePre`，只是顺带 |
+
+另一个坑：**`:mksession` 不保存 tab 作用域变量**，所以 `vim.t.tabname`（tab 名字）
+默认会丢。解决办法是写一个 sidecar JSON 放在 session 文件旁边，source 完 session
+再把名字贴回去。
+
+已实测：用 `SIGKILL` 杀掉 nvim（exit 137，完全没有退出流程），重启后两个 tab、
+tab 内的分屏、两个自定义 tab 名字全部还原。
+
+### 9.7 本机 nvim 还是 0.10.2
 
 计划按 0.12.4 写，但 `/opt/nvim-linux64` 上跑的还是 0.10.2。
 升级命令见 §2.1。注意目录名变了（`nvim-linux64` → `nvim-linux-x86_64`），
 不能原地覆盖。升级后先跑 `:checkhealth`，再 `J lazy` 确认沙箱还正常。
 
-### 9.7 能力差距，别指望抹平
+### 9.8 能力差距，别指望抹平
 
 | 能力 | Linux (herdr) | Windows (nvim 模拟) |
 |---|---|---|
