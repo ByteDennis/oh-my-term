@@ -7,7 +7,7 @@ independent child processes do the downloading, and they read different settings
 |---|---|---|
 | lazy.nvim (plugins) | `git` subprocess | yes |
 | nvim-treesitter (parsers) | `git` / `curl` | yes |
-| **Mason (LSP servers)** | **PowerShell `Invoke-WebRequest` on Windows** | **no** |
+| Mason (LSP servers) | `curl`, else `wget`, else PowerShell | yes, in practice |
 
 ## `HTTP_PROXY` is not enough
 
@@ -27,12 +27,29 @@ lazy.nvim passes the whole environment through to `git` (`uv.os_environ()` in
 `lua/lazy/manage/process.lua`), overriding only `GIT_DIR`, `GIT_WORK_TREE`,
 `GIT_INDEX_FILE` and `GIT_TERMINAL_PROMPT`. So an exported variable reaches git.
 
-## Mason does not read those variables
+## Mason's download order
 
-On Windows, `mason-core/fetch.lua` takes a `platform.is.win` branch and shells out
-to PowerShell's `iwr`. `Invoke-WebRequest` uses the Windows system proxy settings,
-not `HTTPS_PROXY`. The symptom is plugins installing fine while every language
-server fails to download.
+`mason-core/fetch.lua` ends with:
+
+```lua
+return curl():or_else(wget):or_else(platform_specific)
+```
+
+`curl` is tried first, `wget` second, and the PowerShell `Invoke-WebRequest`
+branch is only a last resort. Windows 10 1803 and later ship `curl.exe` in
+`System32`, so curl effectively always wins and the environment variables apply.
+
+The PowerShell path is worth knowing about anyway, because it behaves differently:
+`Invoke-WebRequest` uses the Windows system proxy settings rather than
+`HTTPS_PROXY`. If you ever see plugins installing fine while every language server
+fails, check whether `curl` is actually on the PATH of the process that launched
+Neovim.
+
+For the record, Mason invokes PowerShell as
+`powershell -NoProfile -NonInteractive -Command "<inline>"`. That is an inline
+command, not a `.ps1` file, so a restrictive ExecutionPolicy does not block it;
+ExecutionPolicy governs script files. AppLocker, WDAC or Constrained Language Mode
+would block it, but those are less common.
 
 ## The environment has to exist in the Neovim process
 
@@ -49,7 +66,7 @@ git config --global https.proxy http://127.0.0.1:7890
 ```
 
 ```powershell
-# covers Mason; also set the system proxy in Windows settings
+# covers Mason and anything else started outside a shell
 setx HTTPS_PROXY "http://127.0.0.1:7890"
 setx HTTP_PROXY  "http://127.0.0.1:7890"
 ```

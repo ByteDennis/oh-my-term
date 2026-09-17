@@ -24,4 +24,5 @@ Requires Neovim 0.12.4+, Git for Windows, ripgrep, fd, and a C compiler.
 - [`docs/keys.md`](docs/keys.md) — the full key map
 - [`docs/sessions.md`](docs/sessions.md) — how state survives a forced restart
 - [`docs/proxy.md`](docs/proxy.md) — installing plugins behind a proxy
+- [`docs/lsp.md`](docs/lsp.md) — language servers, and whether you need Mason
 - [`plans/cross-platform-workbench.md`](../plans/cross-platform-workbench.md) — the design, on `main`
