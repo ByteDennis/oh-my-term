@@ -829,22 +829,38 @@ Windows 原生 Neovim 自带剪贴板支持，一般开箱可用。装完先跑�
 
 ## 9. 冲突与待办
 
-### 9.1 `prefix+w` 语义反转（**高优先级，会误删 agent**）
+### 9.1 `prefix+w` 语义反转（**已解决**）
 
-`prefix+w` 在 tmux 里是「打开会话选择器」（无害），在 herdr 里是「**关掉当前 pane**」（销毁性）。
-你在两个环境之间切的时候，这一个键会直接删掉正在跑的 agent。
+`prefix+w` 在 tmux 里是「打开会话选择器」（无害），在你**当时的 herdr 配置**里是
+「关掉当前 pane」（销毁性）。两个环境之间切换时，这一个键会直接删掉正在跑的 agent。
 
-两个方案：
+**结论：这个冲突是自定义配置造成的，herdr 的默认值本来就和 tmux 一致。**
+跑 `herdr --default-config` 查到：
 
-- **A（改 herdr 迁就 tmux）**：herdr `close_pane` 改成 `prefix+p`（对齐 tmux 的 kill-pane），
-  `prefix+w` 留给 picker。
-- **B（改 tmux 迁就 herdr）**：tmux `bind w choose-session` 改成 `bind s choose-session`
-  （顺便对齐 herdr 的 `workspace_picker = prefix+s`），`prefix+w` 绑 `kill-pane`。
+| 动作 | herdr 默认 | 你当时的配置 |
+|---|---|---|
+| `workspace_picker` | `prefix+w` | `prefix+s` |
+| `close_pane` | `prefix+x` | **`prefix+w`** ← 危险来源 |
+| `close_tab` | `prefix+shift+x` | `prefix+q` |
+| `close_workspace` | `prefix+shift+d` | `prefix+shift+w` |
 
-**推荐 B**——因为 §3.2 的统一表是以 herdr 为基准写的，Windows 模拟层也照 herdr 做。
-让 tmux 这个正在被替代的东西去迁就，改动面最小。
+herdr 默认的 `workspace_picker = prefix+w` 和 tmux 的 `bind w choose-session`
+语义完全相同。是自定义把 `workspace_picker` 挪到了 `s`、把销毁性的 `close_pane`
+放进了 `w`，才制造出这个陷阱。
 
-同时 `prefix+x`（tmux 关 window，带确认）vs herdr `prefix+q`（关 tab）也要统一。
+所以修法不是改 tmux，而是**把这几项改回 herdr 默认**，再让 tmux 的
+`x` / `X` / `D` 跟上：
+
+| 键 | herdr | tmux |
+|---|---|---|
+| `prefix+w` | workspace 选择器 | `choose-session` |
+| `prefix+x` | 关 pane | `kill-pane` |
+| `prefix+shift+x` | 关 tab | `confirm kill-window` |
+| `prefix+shift+d` | 关 workspace | `confirm kill-session` |
+
+落地在 `linux-nvim` 分支：`herdr/config.toml` 是完整配置，
+`tmux/herdr-align.conf` 是一个只改四个键的叠加文件（不替换你现有的
+`~/.tmux.conf`）。两者都已实测验证。
 
 ### 9.2 LazyVim 默认键 vs 你的习惯
 
@@ -858,17 +874,40 @@ Windows 原生 Neovim 自带剪贴板支持，一般开箱可用。装完先跑�
 | `leap` vs `flash` | `nvim.bak` 选了 leap extra，新版 LazyVim 默认 flash | **二选一**，别同时开——两个都抢 `s`/`S` |
 | `C-a` | Linux 被 herdr 吃，Windows 被模拟层吃；原生是数字自增 | 已解决：`C-a C-a` 送字面量（§3.2 最后一行） |
 
-### 9.3 herdr 是否支持 send-prefix
+### 9.3 herdr 没有 send-prefix（**已确认**）
 
-tmux 有 `bind C-a send-prefix`，herdr 的 `config.toml` 里没看到对应设置。
-需要查 herdr 文档确认 `prefix+C-a` 能不能送出字面 `C-a`。
-如果不能，nvim 里的数字自增在 Linux 上就彻底没了（可以退而映射到 `<leader>+`）。
+查过 `herdr --default-config`，**herdr 不存在 tmux `send-prefix` 的对应动作**。
+所以 `prefix = ctrl+a` 时，vim 原生的 `<C-a>` 数字自增在 herdr 里彻底拿不到。
 
-### 9.4 herdr 缺少无前缀的 pane 切换
+`<C-x>` 减一不受影响。`linux-nvim` 分支把加一映射到了 `<leader>=`。
 
-tmux 有 `M-h/j/k/l` 直接切 pane（不用前缀），herdr 的 `focus_pane_*` 全是 prefix 形式。
-需要确认 herdr 是否支持 `focus_pane_left = "alt+h"` 这种写法。
-这是日常频率最高的操作，值得专门确认。
+想把 `<C-a>` 要回来只有一个办法：把 herdr 的 prefix 换掉（默认是 `ctrl+b`）。
+但那样整套 `C-a` 肌肉记忆都要重建，不划算。
+
+### 9.4 herdr 支持无前缀绑定，但有取舍（**已确认**）
+
+herdr 的键位语法说明：`"prefix+n"` 需要前缀，`"ctrl+alt+n"` 是直接的终端快捷键。
+所以**支持**无前缀绑定。但有两条限制：
+
+1. herdr 自己的文档写明「最可靠的直接绑定是 `ctrl+字母`、功能键和明确的组合键；
+   `alt+...`、`cmd/super` 和带修饰的标点**取决于你的终端**」。
+2. **`ctrl+hjkl` 不能用**——nvim 要用它们切窗口，herdr 抢走 nvim 就收不到了。
+
+所以只能用 `alt+hjkl`，正好也是你 tmux 里的既有习惯。
+
+还有一个结构限制：`focus_pane_*` **只接受一个绑定值**，给不了
+「`prefix+h` 和 `alt+h` 都行」。解决办法是用 `[[keys.command]]` 自定义命令补上
+另一半：
+
+```toml
+[[keys.command]]
+key = "alt+h"
+type = "shell"
+command = "herdr pane focus --direction left --current"
+```
+
+代价是每次按键 fork 一个进程走 socket API，比内建绑定慢。pane 切换是最高频的
+操作，建议先用一周再决定要不要留。
 
 ### 9.5 `pmap` 的 terminal 分支要重写
 
