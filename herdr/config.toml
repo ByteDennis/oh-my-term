@@ -1,0 +1,132 @@
+# herdr 配置。软链或复制到 ~/.config/herdr/config.toml。
+#
+# 相对你现在那份，只改了键位，其余原样保留。改动的理由见 docs/keys.md，
+# 一句话：workspace_picker 和 close_pane 换回 herdr 默认值，
+# 因为那两个默认值本来就和 tmux 一致，是自定义把它们挪出了安全位置。
+
+onboarding = false
+
+[theme]
+name = "gruvbox"
+auto_switch = false
+
+[ui]
+pane_borders = true
+show_agent_labels_on_pane_borders = false
+agent_panel_sort = "spaces"
+
+[ui.toast]
+delivery = "herdr"
+
+[ui.toast.herdr]
+position = "top-right"
+
+[keys]
+prefix = "ctrl+a"
+
+# ── 分屏 ──
+split_vertical = "prefix+|"
+split_horizontal = "prefix+minus"
+
+# ── pane 焦点 ──
+focus_pane_left = "prefix+h"
+focus_pane_down = "prefix+j"
+focus_pane_up = "prefix+k"
+focus_pane_right = "prefix+l"
+
+# ── tab ──
+new_tab = "prefix+c"
+rename_tab = "prefix+r"
+previous_tab = "prefix+ctrl+h"
+next_tab = "prefix+ctrl+l"
+switch_tab = "prefix+1..9"
+
+# ── 销毁性操作 ──
+# 这三行是这次的核心改动，全部换回 herdr 默认值。
+#
+# 改之前：close_pane = "prefix+w"，而 tmux 的 prefix+w 是「打开会话选择器」。
+# 同一个键在一边是无害的选择器、在另一边直接删掉正在跑的 agent，
+# 两个环境来回切迟早出事。
+#
+# herdr 的默认值本来就和 tmux 对得上（prefix+w 两边都是选择器），
+# 所以正确的修法是把自定义改回来，而不是去改 tmux。
+close_pane = "prefix+x"           # 原来是 prefix+w
+close_tab = "prefix+shift+x"      # 原来是 prefix+q
+close_workspace = "prefix+shift+d" # 原来是 prefix+shift+w
+
+# ── workspace ──
+workspace_picker = "prefix+w"     # 原来是 prefix+s，换回默认，和 tmux 的 w 一致
+new_workspace = "prefix+shift+c"
+rename_workspace = "prefix+shift+r"
+next_workspace = "prefix+ctrl+j"
+previous_workspace = "prefix+ctrl+k"
+
+# ── 其他 ──
+zoom = "prefix+z"
+copy_mode = "prefix+["
+resize_mode = "prefix+shift+j"
+detach = "prefix+d"
+reload_config = "prefix+ctrl+r"
+settings = "prefix+shift+s"
+
+next_agent = "prefix+alt+j"
+previous_agent = "prefix+alt+k"
+focus_agent = "prefix+alt+1..9"
+
+# ── 自定义命令 ──
+
+[[keys.command]]
+key = "prefix+ctrl+p"
+type = "plugin_action"
+command = "jt.command-palette.open"
+description = "命令面板"
+
+[[keys.command]]
+key = "prefix+ctrl+f"
+type = "shell"
+command = "herdr plugin action invoke open-file-viewer-tab --plugin herdr-file-viewer"
+description = "文件查看器"
+
+[[keys.command]]
+key = "prefix+ctrl+g"
+type = "plugin_action"
+command = "xiaof.agent-recap.open"
+description = "Agent recap 时间线"
+
+# 无前缀切 pane，对应 tmux 的 M-hjkl。
+#
+# herdr 的 focus_pane_* 只接受一个绑定值，没法同时给 prefix+h 和 alt+h，
+# 所以这里用自定义 shell 命令补上另一半。
+#
+# 代价：每次按键会 fork 一个进程走 socket API，比内建绑定慢。
+# pane 切换是最高频的操作，先试一周，觉得迟滞就把这四条删掉、只用 prefix+h。
+#
+# 另外 herdr 自己的文档提醒：alt+... 的可靠性取决于终端，
+# 而 ctrl+hjkl 不能用（nvim 要用它们切窗口）。
+
+[[keys.command]]
+key = "alt+h"
+type = "shell"
+command = "herdr pane focus --direction left --current"
+description = "焦点左（无前缀）"
+
+[[keys.command]]
+key = "alt+j"
+type = "shell"
+command = "herdr pane focus --direction down --current"
+description = "焦点下（无前缀）"
+
+[[keys.command]]
+key = "alt+k"
+type = "shell"
+command = "herdr pane focus --direction up --current"
+description = "焦点上（无前缀）"
+
+[[keys.command]]
+key = "alt+l"
+type = "shell"
+command = "herdr pane focus --direction right --current"
+description = "焦点右（无前缀）"
+
+[experimental]
+pane_history = false

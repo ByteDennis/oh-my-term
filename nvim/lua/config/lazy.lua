@@ -1,0 +1,40 @@
+-- 引导 lazy.nvim，然后 LazyVim，然后本仓库自己的插件声明
+
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+
+if not (vim.uv or vim.loop).fs_stat(lazypath) then
+  local out = vim.fn.system({
+    "git", "clone", "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git", "--branch=stable", lazypath,
+  })
+  if vim.v.shell_error ~= 0 then
+    vim.api.nvim_echo({
+      { "lazy.nvim 克隆失败：\n", "ErrorMsg" },
+      { out, "WarningMsg" },
+    }, true, {})
+    vim.fn.getchar()
+    os.exit(1)
+  end
+end
+
+vim.opt.rtp:prepend(lazypath)
+
+require("lazy").setup({
+  spec = {
+    { "LazyVim/LazyVim", import = "lazyvim.plugins" },
+    { import = "plugins" },
+  },
+  defaults = { lazy = true, version = false },
+  install = { colorscheme = { "tokyonight" } },
+  -- 不在后台检查更新，手动 :Lazy update
+  checker = { enabled = false },
+  change_detection = { notify = false },
+  performance = {
+    rtp = {
+      disabled_plugins = {
+        "gzip", "tarPlugin", "tohtml", "tutor", "zipPlugin",
+        "netrwPlugin", "matchit", "matchparen",
+      },
+    },
+  },
+})
