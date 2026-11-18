@@ -18,12 +18,15 @@ touch "$DB"
 # >>> print an error and exit <<< #
 die() { printf 'cop: %s\n' "$*" >&2; exit 1; }
 
-# >>> run the playwright driver <<< #
-py() {
+# >>> run python <<< #
+pyrun() {
   local bin=${COP_PYTHON:-}
   [[ -n $bin ]] || bin=$(command -v python || command -v python3 || command -v py) || die "python not found, set COP_PYTHON"
-  "$bin" "$DIR/cop.py" "$@"
+  "$bin" "$@"
 }
+
+# >>> run the playwright driver <<< #
+py() { pyrun "$DIR/cop.py" "$@"; }
 
 # >>> true when edge answers on the debug port <<< #
 alive() { curl -fs --noproxy '*' -m 2 "http://127.0.0.1:$COP_PORT/json/version" >/dev/null 2>&1; }
@@ -88,8 +91,10 @@ pick() {
 render() {
   if [[ -n ${COP_RENDER:-} ]]; then $COP_RENDER "$1"
   elif command -v glow >/dev/null; then glow "$1"
+  elif [[ ! -t 1 ]]; then cat "$1"
   elif command -v bat >/dev/null; then bat -pp -l md "$1"
-  else cat "$1"; fi
+  elif pyrun -c 'import rich' 2>/dev/null; then pyrun -m rich.markdown "$1"
+  else awk -f "$DIR/md.awk" "$1"; fi
 }
 
 # >>> cop new [NAME] <<< #

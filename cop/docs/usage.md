@@ -8,7 +8,9 @@ ln -s "$PWD/cop/cop" ~/bin/cop
 ```
 
 `playwright install` is not needed: cop attaches to the Edge you already have.
-Optional renderers, used in this order: `glow`, `bat`, plain `cat`.
+Optional renderers, used in this order: `glow`, `bat`, Python `rich`
+(`pip install --user rich`), then the built-in `md.awk`, which needs nothing
+beyond Git Bash. Piped or redirected output stays plain markdown.
 
 ## First run
 
@@ -56,7 +58,7 @@ survives restarts because the profile lives on disk.
 | `COP_EDGE` | auto-detected `msedge.exe` |
 | `COP_PYTHON` | first of `python`, `python3`, `py` |
 | `COP_TIMEOUT` | `600` seconds per reply |
-| `COP_RENDER` | `glow`, else `bat`, else `cat` |
+| `COP_RENDER` | `glow`, else `bat`, else `rich`, else `md.awk` |
 
 `127.0.0.1` is added to `NO_PROXY` so a corporate proxy does not swallow the
 DevTools connection.
