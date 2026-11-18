@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+COP_HOME=${COP_HOME:-$HOME/.cop}
+COP_PORT=${COP_PORT:-9222}
+COP_URL=${COP_URL:-https://m365.cloud.microsoft/chat}
+NO_PROXY="127.0.0.1,localhost${NO_PROXY:+,$NO_PROXY}"
+no_proxy=$NO_PROXY
+export COP_HOME COP_PORT COP_URL NO_PROXY no_proxy
+
+DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+DB=$COP_HOME/sessions.tsv
+CUR=$COP_HOME/current
+LAST=$COP_HOME/last.md
+mkdir -p "$COP_HOME"
+touch "$DB"
+
+# >>> print an error and exit <<< #
+die() { printf 'cop: %s\n' "$*" >&2; exit 1; }
+
+# >>> run the playwright driver <<< #
+py() {
+  local bin=${COP_PYTHON:-}
+  [[ -n $bin ]] || bin=$(command -v python || command -v python3 || command -v py) || die "python not found, set COP_PYTHON"
+  "$bin" "$DIR/cop.py" "$@"
+}
+
+# >>> true when edge answers on the debug port <<< #
+alive() { curl -fs --noproxy '*' -m 2 "http://127.0.0.1:$COP_PORT/json/version" >/dev/null 2>&1; }
+
+# >>> locate msedge on windows or linux <<< #
+edge() {
+  local p
+  for p in "${COP_EDGE:-}" \
+    "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
+    "/c/Program Files/Microsoft/Edge/Application/msedge.exe" \
+    "$(command -v msedge 2>/dev/null || true)" \
+    "$(command -v microsoft-edge 2>/dev/null || true)"; do
+    [[ -n $p && -x $p ]] && { printf '%s\n' "$p"; return 0; }
+  done
+  return 1
+}
+
+# >>> start the persistent edge window once <<< #
+up() {
+  alive && return 0
+  local bin prof
+  bin=$(edge) || die "msedge not found, set COP_EDGE"
+  prof=$COP_HOME/edge
+  mkdir -p "$prof"
+  command -v cygpath >/dev/null && prof=$(cygpath -w "$prof")
+  nohup "$bin" --remote-debugging-port="$COP_PORT" --user-data-dir="$prof" \
+    --no-first-run --no-default-browser-check "$COP_URL" >/dev/null 2>&1 &
+  disown || true
+  for _ in $(seq 60); do alive && return 0; sleep 0.5; done
+  die "edge did not open port $COP_PORT"
+}
+
+# >>> current session name <<< #
+current() { [[ -s $CUR ]] && cat "$CUR"; }
+
+# >>> saved url of a session <<< #
+url_of() { awk -F'\t' -v n="$1" '$1==n{print $2; exit}' "$DB"; }
+
+# >>> true when a session exists <<< #
+has() { awk -F'\t' -v n="$1" '$1==n{f=1} END{exit !f}' "$DB"; }
+
+# >>> rewrite the session table through an awk program <<< #
+edit_db() { awk -F'\t' -v OFS='\t' "$@" "$DB" >"$DB.tmp" && mv "$DB.tmp" "$DB"; }
+
+# >>> store a session url <<< #
+set_url() { edit_db -v n="$1" -v u="$2" '$1==n{$2=u} {print}'; }
+
+# >>> drop one session <<< #
+drop() { edit_db -v n="$1" '$1!=n'; [[ $(current || true) == "$1" ]] && rm -f "$CUR"; return 0; }
+
+# >>> fuzzy pick sessions <<< #
+pick() {
+  [[ -s $DB ]] || die "no sessions, start one with: cop new NAME"
+  local cur
+  cur=$(current || true)
+  awk -F'\t' -v c="$cur" '{printf "%s\t%s\t%s\n", ($1==c?"*":" "), $1, ($2==""?"(not sent yet)":$2)}' "$DB" |
+    fzf --delimiter='\t' --with-nth=1,2 --nth=2 --height=40% --reverse --prompt='cop> ' \
+      --preview='printf "%s\n" {3}' --preview-window=down,1 "$@" | cut -f2
+}
+
+# >>> render markdown in the terminal <<< #
+render() {
+  if [[ -n ${COP_RENDER:-} ]]; then $COP_RENDER "$1"
+  elif command -v glow >/dev/null; then glow "$1"
+  elif command -v bat >/dev/null; then bat -pp -l md "$1"
+  else cat "$1"; fi
+}
+
+# >>> cop new [NAME] <<< #
+cmd_new() {
+  local name=${1:-chat-$(date +%m%d-%H%M%S)}
+  [[ $name != *$'\t'* ]] || die "bad name"
+  has "$name" && die "session '$name' exists, use: cop use $name"
+  printf '%s\t\t%s\n' "$name" "$(date +%F)" >>"$DB"
+  printf '%s\n' "$name" >"$CUR"
+  up
+  py open >/dev/null
+  echo "new: $name"
+}
+
+# >>> cop use [NAME] <<< #
+cmd_use() {
+  local name=${1:-}
+  [[ -n $name ]] || name=$(pick) || return 0
+  has "$name" || die "no session '$name'"
+  printf '%s\n' "$name" >"$CUR"
+  up
+  py open "$(url_of "$name")" >/dev/null
+  echo "use: $name"
+}
+
+# >>> cop list <<< #
+cmd_list() {
+  if [[ -t 1 ]] && command -v fzf >/dev/null; then
+    local name
+    name=$(pick --header='enter: use') || return 0
+    cmd_use "$name"
+  else
+    local cur
+    cur=$(current || true)
+    awk -F'\t' -v c="$cur" '{printf "%s %-24s %s\n", ($1==c?"*":" "), $1, $2}' "$DB"
+  fi
+}
+
+# >>> cop close: leave the current session <<< #
+cmd_close() {
+  local name=${1:-$(current || true)}
+  [[ -n $name ]] || return 0
+  [[ $(current || true) == "$name" ]] && rm -f "$CUR"
+  echo "closed: $name"
+}
+
+# >>> cop delete [NAME...|all] <<< #
+cmd_delete() {
+  local names=("$@") n ans
+  if [[ ${names[0]:-} == all || ${names[0]:-} == sessions ]]; then
+    read -rp "delete all $(wc -l <"$DB") sessions? [y/N] " ans
+    [[ $ans == [yY] ]] || return 0
+    : >"$DB"; rm -f "$CUR"; echo "deleted all"; return 0
+  fi
+  if ((${#names[@]} == 0)); then
+    mapfile -t names < <(pick -m --header='tab: mark, enter: delete') || true
+  fi
+  for n in "${names[@]}"; do
+    has "$n" || { echo "skip: $n" >&2; continue; }
+    drop "$n"; echo "deleted: $n"
+  done
+}
+
+# >>> write a prompt in $EDITOR <<< #
+compose() {
+  local f=$COP_HOME/prompt.md
+  : >"$f"
+  "${VISUAL:-${EDITOR:-nvim}}" "$f"
+  cat "$f"
+}
+
+# >>> send a prompt in the current session <<< #
+send() {
+  local prompt=$1 name lock=$COP_HOME/lock
+  [[ -n ${prompt//[[:space:]]/} ]] || return 0
+  name=$(current || true)
+  if [[ -z $name ]] || ! has "$name"; then cmd_new >/dev/null; name=$(current); fi
+  up
+  mkdir "$lock" 2>/dev/null || die "another prompt is running (remove $lock if stale)"
+  local rc=0
+  printf '%s' "$prompt" | py ask --url "$(url_of "$name")" --url-file "$COP_HOME/url" >"$LAST" || rc=$?
+  rmdir "$lock"
+  ((rc == 0)) || return "$rc"
+  set_url "$name" "$(cat "$COP_HOME/url")"
+  render "$LAST"
+}
+
+# >>> cop ask TEXT, piped stdin, or editor <<< #
+cmd_ask() {
+  local text=$* input=""
+  [[ -t 0 ]] || input=$(cat)
+  if [[ -n $input && -n $text ]]; then text=$(printf '%s\n\n```\n%s\n```' "$text" "$input")
+  elif [[ -n $input ]]; then text=$input
+  elif [[ -z $text ]]; then text=$(compose)
+  fi
+  send "$text"
+}
+
+# >>> interactive loop in the current session <<< #
+cmd_chat() {
+  [[ -n $(current || true) ]] || cmd_use || true
+  [[ -n $(current || true) ]] || cmd_new
+  echo "session: $(current)   :e editor  :u switch  :n new  :q quit"
+  local line
+  while IFS= read -erp "$(current)> " line; do
+    history -s "$line"
+    case $line in
+      :q | :quit) break ;;
+      :e) send "$(compose)" ;;
+      :u) cmd_use || true ;;
+      :n*) cmd_new ${line#:n} ;;
+      *) send "$line" || true ;;
+    esac
+  done
+}
+
+# >>> usage <<< #
+usage() {
+  cat <<EOF
+cop - Microsoft 365 Copilot chat in the terminal
+
+  cop                    chat loop in the current session
+  cop ask [TEXT]         one prompt (TEXT, piped stdin, or \$EDITOR)
+  cop TEXT...            same as: cop ask TEXT
+  cop new [NAME]         start a session and switch to it
+  cop use [NAME]         switch session (fzf when NAME is omitted)
+  cop list               pick a session with fzf
+  cop close [NAME]       leave the current session
+  cop delete [NAME...]   forget sessions (fzf multi-select, or 'all')
+  cop last               show the last reply again
+  cop up                 open the persistent edge window
+  cop probe              dump the page tree to fix selectors
+EOF
+}
+
+case ${1:-} in
+  "") if [[ -t 0 ]]; then cmd_chat; else cmd_ask; fi ;;
+  -h | --help | help) usage ;;
+  new) shift; cmd_new "$@" ;;
+  use) shift; cmd_use "$@" ;;
+  list | ls) cmd_list ;;
+  close) shift; cmd_close "$@" ;;
+  delete | rm) shift; cmd_delete "$@" ;;
+  ask) shift; cmd_ask "$@" ;;
+  chat) cmd_chat ;;
+  last) [[ -s $LAST ]] && render "$LAST" || die "no reply yet" ;;
+  up) up; echo "edge ready on port $COP_PORT" ;;
+  probe) up; py probe "$COP_HOME/probe.txt" ;;
+  *) cmd_ask "$@" ;;
+esac
