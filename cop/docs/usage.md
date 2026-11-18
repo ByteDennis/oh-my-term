@@ -2,10 +2,20 @@
 
 ## Install
 
+In Git Bash:
+
 ```bash
-pip install --user playwright
-ln -s "$PWD/cop/cop" ~/bin/cop
+git clone -b copilot https://github.com/ByteDennis/oh-my-term.git ~/oh-my-term
+python -m pip install --user playwright
+echo 'export PATH="$HOME/oh-my-term/cop:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+cop up
 ```
+
+Behind a proxy, export `HTTPS_PROXY` before `pip install`. Put the directory on
+`PATH` rather than linking the script: Git Bash's `ln -s` copies by default, and a
+copied `cop` can no longer find `cop.py`. Check `python --version` first; if it
+opens the Microsoft Store, set `COP_PYTHON=py`.
 
 `playwright install` is not needed: cop attaches to the Edge you already have.
 Optional renderers, used in this order: `glow`, `bat`, Python `rich`

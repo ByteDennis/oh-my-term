@@ -25,8 +25,11 @@ pyrun() {
   "$bin" "$@"
 }
 
+# >>> path in the form native windows programs expect <<< #
+winpath() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else printf '%s\n' "$1"; fi; }
+
 # >>> run the playwright driver <<< #
-py() { pyrun "$DIR/cop.py" "$@"; }
+py() { COP_HOME=$(winpath "$COP_HOME") pyrun "$(winpath "$DIR/cop.py")" "$@"; }
 
 # >>> true when edge answers on the debug port <<< #
 alive() { curl -fs --noproxy '*' -m 2 "http://127.0.0.1:$COP_PORT/json/version" >/dev/null 2>&1; }
@@ -175,7 +178,7 @@ send() {
   up
   mkdir "$lock" 2>/dev/null || die "another prompt is running (remove $lock if stale)"
   local rc=0
-  printf '%s' "$prompt" | py ask --url "$(url_of "$name")" --url-file "$COP_HOME/url" >"$LAST" || rc=$?
+  printf '%s' "$prompt" | py ask --url "$(url_of "$name")" --url-file "$(winpath "$COP_HOME/url")" >"$LAST" || rc=$?
   rmdir "$lock"
   ((rc == 0)) || return "$rc"
   set_url "$name" "$(cat "$COP_HOME/url")"
@@ -242,6 +245,6 @@ case ${1:-} in
   chat) cmd_chat ;;
   last) [[ -s $LAST ]] && render "$LAST" || die "no reply yet" ;;
   up) up; echo "edge ready on port $COP_PORT" ;;
-  probe) up; py probe "$COP_HOME/probe.txt" ;;
+  probe) up; py probe "$(winpath "$COP_HOME/probe.txt")" ;;
   *) cmd_ask "$@" ;;
 esac
