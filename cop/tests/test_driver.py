@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import shutil
 import socket
 
@@ -18,7 +19,7 @@ def browser():
             sock.bind(("127.0.0.1", 0))
             port = sock.getsockname()[1]
         cop.PORT = str(port)
-        b = pw.chromium.launch(executable_path=shutil.which("google-chrome") or None,
+        b = pw.chromium.launch(executable_path=os.environ.get("TEST_BROWSER") or shutil.which("google-chrome") or None,
                                headless=True, args=[f"--remote-debugging-port={port}"])
         yield pw, b
         b.close()
@@ -105,3 +106,43 @@ def test_status_connection_leaves_login_tab_in_place(browser):
     assert attached.url == old
     assert len(ctx.pages) == count
     login.close()
+
+
+@pytest.mark.parametrize("host", ["m365copilot.com", "copilot.cloud.microsoft"])
+def test_redirected_chat_reused_across_connections(browser, monkeypatch, host):
+    pw, b = browser
+    monkeypatch.setenv("COP_SETTLE", "0.1")
+    ctx = b.contexts[0] if b.contexts else b.new_context()
+    ctx.route("**/*", lambda route: route.fulfill(body="<html>Chat</html>", content_type="text/html"))
+    tab = ctx.new_page()
+    tab.goto(f"https://{host}/chat?conversation=existing")
+    mock(tab, "responses.insertAdjacentHTML('beforeend', '<article role=article>Alias reply</article>');")
+    tab.evaluate("window.kept = true")
+    pages = len(ctx.pages)
+    try:
+        for prompt in ("first question", "second question"):
+            attached = cop.connect(pw)
+            assert attached.url == tab.url
+            cop.goto(attached, "")
+            assert cop.ask(attached, cop.SEL, prompt, timeout=3) == "Alias reply"
+            assert attached.evaluate("window.kept") is True
+            assert len(ctx.pages) == pages
+    finally:
+        tab.close()
+
+
+def test_missing_chat_does_not_create_a_tab(browser):
+    pw, b = browser
+    ctx = b.contexts[0] if b.contexts else b.new_context()
+    tab = ctx.new_page()
+    ctx.route("**/*", lambda route: route.fulfill(body="Unrelated page"))
+    tab.goto("https://m365copilot.com.example.test/chat")
+    pages = len(ctx.pages)
+    try:
+        with pytest.raises(SystemExit) as exc:
+            cop.connect(pw)
+        assert exc.value.code == 3
+        assert len(ctx.pages) == pages
+        assert tab.url == "https://m365copilot.com.example.test/chat"
+    finally:
+        tab.close()

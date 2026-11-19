@@ -17,7 +17,7 @@ except ImportError:
 
 HOME = Path(os.environ.get("COP_HOME", Path.home() / ".cop"))
 SCRIPT = Path(__file__).with_name("cop").as_posix()
-COMMANDS = [":help", ":new", ":use", ":sessions", ":status", ":last", ":editor",
+COMMANDS = [":help", ":new", ":use", ":sessions", ":status", ":doctor", ":last", ":editor",
             ":file", ":export", ":stream", ":quit"]
 
 
@@ -91,7 +91,7 @@ def main():
                 if command in (":q", ":quit"):
                     break
                 if command == ":help":
-                    print(":new [NAME] · :use [NAME] · :sessions [SEARCH] · :status · :last\n"
+                    print(":new [NAME] · :use [NAME] · :sessions [SEARCH] · :status · :doctor · :last\n"
                           ":editor · :file PATH (attach to next prompt) · :export PATH\n"
                           ":stream on|off · :quit\nEnter sends; Alt+Enter adds a line. Ctrl+C clears/cancels; Ctrl+D exits.")
                 elif command == ":file":
@@ -118,7 +118,7 @@ def main():
                         name = line.split("\t")[0]
                         if argument.casefold() in name.casefold():
                             print(("* " if name == current() else "  ") + name)
-                elif command in (":n", ":new", ":u", ":use", ":status", ":last", ":e", ":editor"):
+                elif command in (":n", ":new", ":u", ":use", ":status", ":doctor", ":last", ":e", ":editor"):
                     cmd = {":n": "new", ":new": "new", ":u": "use", ":use": "use",
                            ":e": "ask", ":editor": "ask"}.get(command, command[1:])
                     run(cmd, *([argument] if argument else []))

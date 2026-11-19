@@ -32,7 +32,10 @@ winpath() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else printf 
 py() { COP_HOME=$(winpath "$COP_HOME") pyrun "$(winpath "$DIR/cop.py")" "$@"; }
 
 # >>> true when edge answers on the debug port <<< #
-alive() { curl -fs --noproxy '*' -m 2 "http://127.0.0.1:$COP_PORT/json/version" >/dev/null 2>&1; }
+alive() { py ping >/dev/null 2>&1; }
+
+# Sending must never launch a browser, even if the debug port is unavailable.
+require_browser() { alive || die "cannot connect on port $COP_PORT; run: cop doctor (or cop up to start Edge)"; }
 
 # >>> locate msedge on windows or linux <<< #
 edge() {
@@ -105,9 +108,9 @@ cmd_new() {
   local name=${1:-chat-$(date +%m%d-%H%M%S)}
   [[ $name != *$'\t'* ]] || die "bad name"
   has "$name" && die "session '$name' exists, use: cop use $name"
+  require_browser
   printf '%s\t\t%s\n' "$name" "$(date +%F)" >>"$DB"
   printf '%s\n' "$name" >"$CUR"
-  up
   py open >/dev/null
   echo "new: $name"
 }
@@ -117,8 +120,8 @@ cmd_use() {
   local name=${1:-}
   [[ -n $name ]] || name=$(pick) || return 0
   has "$name" || die "no session '$name'"
+  require_browser
   printf '%s\n' "$name" >"$CUR"
-  up
   py open "$(url_of "$name")" >/dev/null
   echo "use: $name"
 }
@@ -173,9 +176,13 @@ compose() {
 send() (
   local prompt=$1 name lock=$COP_HOME/lock
   [[ -n ${prompt//[[:space:]]/} ]] || return 0
+  require_browser
   name=$(current || true)
-  if [[ -z $name ]] || ! has "$name"; then cmd_new >/dev/null; name=$(current); fi
-  up
+  if [[ -z $name ]] || ! has "$name"; then
+    name=chat-$(date +%m%d-%H%M%S)
+    printf '%s\t\t%s\n' "$name" "$(date +%F)" >>"$DB"
+    printf '%s\n' "$name" >"$CUR"
+  fi
   mkdir "$lock" 2>/dev/null || die "another prompt is running (remove $lock if stale)"
   local rc=0 result
   result=$(mktemp "$COP_HOME/reply.XXXXXX")
@@ -220,6 +227,7 @@ cop - Microsoft 365 Copilot chat in the terminal
   cop last               show the last reply again
   cop up                 open the persistent edge window
   cop status             check connection/login without opening a window
+  cop doctor             show paths, version, debug port and tab hosts
   cop probe              dump the page tree to fix selectors
 EOF
 }
@@ -235,8 +243,12 @@ case ${1:-} in
   ask) shift; cmd_ask "$@" ;;
   chat) cmd_chat ;;
   last) [[ -s $LAST ]] && render "$LAST" || die "no reply yet" ;;
-  up) up; echo "edge ready on port $COP_PORT" ;;
+  up) up; py ensure >/dev/null; echo "edge ready on port $COP_PORT" ;;
   status) alive || die "browser not running; run: cop up"; py status ;;
-  probe) up; py probe "$(winpath "$COP_HOME/probe.txt")" ;;
+  doctor)
+    printf 'cop script: %s\n' "$DIR/cop"
+    printf 'revision: %s\n' "$(git -C "$DIR" rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+    py doctor ;;
+  probe) require_browser; py probe "$(winpath "$COP_HOME/probe.txt")" ;;
   *) cmd_ask "$@" ;;
 esac

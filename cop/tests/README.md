@@ -9,7 +9,12 @@ python -m pytest cop/tests lab/tests -q
 ```
 
 Chrome on PATH is used for browser tests; otherwise install Chromium with
-`python -m playwright install chromium`.
+`python -m playwright install chromium`. `TEST_BROWSER=/path/to/chromium`
+overrides the executable. The Linux launcher regression requires Chrome on PATH
+or `TEST_BROWSER`; it runs actual `cop up` twice and two questions, checks one
+browser launch/tab, and verifies that connection/missing-tab errors never launch
+or open another tab. Redirect tests reuse both supported Microsoft alias hosts
+through intercepted mock pages; they never contact Microsoft.
 
 For the Linux terminal/CDP integration test:
 

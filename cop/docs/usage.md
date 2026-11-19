@@ -32,6 +32,10 @@ Opens Edge with its own profile in `~/.cop/edge` and the DevTools port on 9222.
 Sign in once in that window. Keep the window open (minimised is fine); the login
 survives restarts because the profile lives on disk.
 
+Only `cop up` starts Edge. Questions, session commands and probes attach to that
+window; if it is unavailable, they report an error rather than opening another
+window. Run `cop up` again after closing Edge.
+
 ## Commands
 
 | Command | What |
@@ -47,6 +51,7 @@ survives restarts because the profile lives on disk.
 | `cop last` | show the last reply again, no browser call |
 | `cop probe` | write the page's accessibility tree to `~/.cop/probe.txt` |
 | `cop status` | inspect connection/login without opening a window or navigating |
+| `cop doctor` | print the installed script/revision, Python, profile, debug port and tab hosts; no navigation |
 
 ## Interactive editing
 
@@ -61,6 +66,7 @@ report connection, login requirements, waiting and completion on stderr.
 | `:use [NAME]` / `:u [NAME]` | Resume a session (fzf picker when omitted) |
 | `:sessions [SEARCH]` | List/search saved session names |
 | `:status` | Connection and sign-in status |
+| `:doctor` | Diagnose the installed version, paths, debug connection and tab hosts |
 | `:editor` / `:e` | Compose with `$EDITOR` |
 | `:last` | Render the saved reply again |
 | `:file PATH` | Attach a UTF-8 text/code file to the next prompt |
@@ -90,6 +96,10 @@ and releases the prompt lock. Failed requests preserve the last successful reply
 - Conversation URLs retain their query parameters. An unsaved active conversation
   is reused rather than reloaded on every send. Authentication tabs are preserved
   while you sign in, and normal requests do not bring the window to the foreground.
+- Microsoft 365 chat redirects between `m365.cloud.microsoft`, `m365copilot.com`
+  and `copilot.cloud.microsoft` reuse the existing tab. A custom `COP_URL` keeps
+  its exact origin. A missing/unrecognized tab produces an error on ask; `cop up`
+  can explicitly restore a chat tab.
 - Browser sessions can still expire under Microsoft/company policy; persistence
   cannot bypass that. The driver reports sign-in requirements and waits in the
   existing window for up to `COP_LOGIN_TIMEOUT` seconds.
@@ -111,6 +121,11 @@ and releases the prompt lock. Failed requests preserve the last successful reply
 
 `127.0.0.1` is added to `NO_PROXY` so a corporate proxy does not swallow the
 DevTools connection.
+
+If a question opens a window unexpectedly, run `type -a cop` and `cop doctor` to
+check that the updated repository copy is on PATH. The doctor output omits tab
+paths, query strings and titles. `cop up` and the driver use the same native
+Python loopback connection, avoiding a separate Git Bash curl/proxy probe.
 
 ## When Copilot changes its page
 

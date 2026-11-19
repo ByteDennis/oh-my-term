@@ -1,12 +1,14 @@
 import argparse
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
+from urllib.request import ProxyHandler, build_opener
 
 from playwright.sync_api import sync_playwright
 
@@ -32,6 +34,7 @@ SEL = {
     "reply": ["[data-testid*=message-content i]", "[role=article]"],
 }
 AUTH_HOSTS = {"login.microsoftonline.com", "login.live.com", "login.microsoft.com"}
+CHAT_HOSTS = {"m365.cloud.microsoft", "m365copilot.com", "copilot.cloud.microsoft"}
 
 
 def status(message):
@@ -40,7 +43,38 @@ def status(message):
 
 
 def is_chat(page):
-    return urlsplit(page.url).netloc == HOST
+    url = urlsplit(page.url)
+    configured = urlsplit(CHAT)
+    if url.scheme == configured.scheme and url.netloc.lower() == HOST.lower():
+        return True
+    # Microsoft redirects between these hosts. Custom COP_URL origins stay exact.
+    return (configured.scheme == "https" and configured.hostname in CHAT_HOSTS
+            and configured.port in (None, 443)
+            and url.scheme == "https" and url.hostname in CHAT_HOSTS
+            and url.port in (None, 443))
+
+
+def debug_json(path):
+    # Use the same native Python/loopback as Playwright, including in Git Bash.
+    opener = build_opener(ProxyHandler({}))
+    with opener.open(f"http://127.0.0.1:{PORT}/json/{path}", timeout=2) as response:
+        return json.load(response)
+
+
+def doctor():
+    print(f"python: {sys.executable} ({platform.system()})")
+    print(f"profile: {HOME / 'edge'}")
+    print(f"debug endpoint: http://127.0.0.1:{PORT}")
+    try:
+        version = debug_json("version")
+        print(f"browser: {version.get('Browser', 'unknown')}")
+        for tab in debug_json("list"):
+            if tab.get("type") == "page":
+                url = urlsplit(tab.get("url", ""))
+                # Omit paths, queries and titles, which can contain session data.
+                print(f"tab host: {url.hostname or url.scheme or '(blank)'}")
+    except Exception as exc:
+        print(f"debug connection unavailable ({type(exc).__name__}); run: cop up")
 
 
 def needs_login(page):
@@ -87,12 +121,13 @@ def count(page, queries):
 
 
 # >>> attach to the running edge and return the chat tab <<< #
-def connect(pw, create=True):
+def connect(pw, create=False):
     status("connecting to existing browser")
     try:
         browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}", timeout=10000)
-    except Exception:
-        die("edge is not running on port %s, start it with: cop up" % PORT, 2)
+    except Exception as exc:
+        reason = str(exc).splitlines()[0]
+        die(f"cannot attach to Edge on port {PORT}: {reason}; run: cop doctor", 2)
     ctx = browser.contexts[0]
     try:
         ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=ORIGIN)
@@ -104,8 +139,14 @@ def connect(pw, create=True):
     if page is None and not create:
         die("browser connected; no Copilot tab (run: cop up)", 3)
     if page is None:
-        page = ctx.new_page()
+        page = next((p for p in ctx.pages if p.url == "about:blank"), None) or ctx.new_page()
         page.goto(CHAT, wait_until="domcontentloaded")
+    try:
+        origin = "{0.scheme}://{0.netloc}".format(urlsplit(page.url))
+        if is_chat(page):
+            ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=origin)
+    except Exception:
+        pass
     return page
 
 
@@ -262,14 +303,31 @@ def main():
     ak.add_argument("--timeout", type=float, default=float(os.environ.get("COP_TIMEOUT", 600)))
     sub.add_parser("last")
     sub.add_parser("status")
+    sub.add_parser("ping")
+    sub.add_parser("doctor")
+    sub.add_parser("ensure")
     pr = sub.add_parser("probe")
     pr.add_argument("file")
     a = ap.parse_args()
 
+    if a.cmd == "ping":
+        try:
+            version = debug_json("version")
+            if not version.get("webSocketDebuggerUrl"):
+                raise ValueError("not a browser debug endpoint")
+        except Exception:
+            sys.exit(2)
+        return
+    if a.cmd == "doctor":
+        doctor()
+        return
+
     sel = selectors()
     with sync_playwright() as pw:
-        page = connect(pw, create=a.cmd != "status")
-        if a.cmd == "open":
+        page = connect(pw, create=a.cmd in {"open", "ensure"})
+        if a.cmd == "ensure":
+            return
+        elif a.cmd == "open":
             goto(page, a.url, fresh=not a.url)
             print(page.url)
         elif a.cmd == "status":
