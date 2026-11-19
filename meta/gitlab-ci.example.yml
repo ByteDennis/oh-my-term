@@ -1,0 +1,39 @@
+# Include this from your company's root .gitlab-ci.yml when ready.
+# Merge stage names with an existing pipeline. No server deployment is assumed.
+stages: [test, build]
+
+metadata-api:
+  image: python:3.13-slim
+  stage: test
+  script:
+    - pip install -r meta/requirements.txt pytest httpx
+    - python -m pytest meta/tests/test_api.py -q
+
+metadata-web:
+  image: node:24-alpine
+  stage: test
+  script:
+    - cd meta/frontend
+    - npm ci
+    - npm run build
+  artifacts:
+    paths: [meta/frontend/dist/]
+    expire_in: 7 days
+
+metadata-image:
+  image: docker:28-cli
+  services: ["docker:28-dind"]
+  stage: build
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: /certs
+    DOCKER_TLS_VERIFY: "1"
+    DOCKER_CERT_PATH: /certs/client
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+      allow_failure: true
+  script:
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" --username "$CI_REGISTRY_USER" --password-stdin
+    - docker build -t "$CI_REGISTRY_IMAGE/metadata:$CI_COMMIT_SHA" meta
+    - docker push "$CI_REGISTRY_IMAGE/metadata:$CI_COMMIT_SHA"

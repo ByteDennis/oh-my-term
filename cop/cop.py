@@ -24,8 +24,27 @@ SEL = {
     ],
     "stop": ["role=button[name=/^stop/i]"],
     "copy": ["role=button[name=/^copy(?! code)/i]"],
+    "assistant": [
+        "[data-message-author-role=assistant]",
+        "[data-author=assistant]",
+        "[data-testid*=assistant-message i]",
+    ],
     "reply": ["[data-testid*=message-content i]", "[role=article]"],
 }
+AUTH_HOSTS = {"login.microsoftonline.com", "login.live.com", "login.microsoft.com"}
+
+
+def status(message):
+    if os.environ.get("COP_STATUS", "1" if sys.stderr.isatty() else "0") == "1":
+        print(f"cop: {message}", file=sys.stderr, flush=True)
+
+
+def is_chat(page):
+    return urlsplit(page.url).netloc == HOST
+
+
+def needs_login(page):
+    return urlsplit(page.url).hostname in AUTH_HOSTS
 
 
 # >>> print an error and exit with a code <<< #
@@ -50,7 +69,11 @@ def find(page, queries, wait=0.0, visible=False):
     while True:
         for q in queries:
             loc = page.locator(q)
-            if loc.count() and (not visible or loc.last.is_visible()):
+            if visible:
+                for index in range(loc.count() - 1, -1, -1):
+                    if loc.nth(index).is_visible():
+                        return loc.nth(index)
+            elif loc.count():
                 return loc
         if time.time() >= end:
             return None
@@ -64,9 +87,10 @@ def count(page, queries):
 
 
 # >>> attach to the running edge and return the chat tab <<< #
-def connect(pw):
+def connect(pw, create=True):
+    status("connecting to existing browser")
     try:
-        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}")
+        browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{PORT}", timeout=10000)
     except Exception:
         die("edge is not running on port %s, start it with: cop up" % PORT, 2)
     ctx = browser.contexts[0]
@@ -74,19 +98,70 @@ def connect(pw):
         ctx.grant_permissions(["clipboard-read", "clipboard-write"], origin=ORIGIN)
     except Exception:
         pass
-    tabs = [p for p in ctx.pages if HOST in p.url]
-    page = tabs[0] if tabs else (ctx.pages[0] if ctx.pages else ctx.new_page())
-    if HOST not in page.url:
+    tabs = [p for p in ctx.pages if is_chat(p)]
+    auth = [p for p in ctx.pages if needs_login(p)]
+    page = tabs[0] if tabs else (auth[0] if auth else None)
+    if page is None and not create:
+        die("browser connected; no Copilot tab (run: cop up)", 3)
+    if page is None:
+        page = ctx.new_page()
         page.goto(CHAT, wait_until="domcontentloaded")
-    page.bring_to_front()
     return page
 
 
 # >>> open a session url, or a fresh chat when url is empty <<< #
-def goto(page, url):
-    if url and page.url.split("?")[0] == url.split("?")[0]:
+def goto(page, url, fresh=False):
+    # Leave a sign-in flow intact, and keep an unsaved conversation on ask.
+    if needs_login(page) or (not url and not fresh and is_chat(page)):
+        return
+    if page.url == (url or CHAT) and not fresh:
         return
     page.goto(url or CHAT, wait_until="domcontentloaded")
+
+
+def ready(page, sel, timeout=None):
+    timeout = float(os.environ.get("COP_LOGIN_TIMEOUT", "120")) if timeout is None else timeout
+    end = time.monotonic() + timeout
+    reported = False
+    status("checking chat input and sign-in")
+    while True:
+        box = find(page, sel["input"], visible=True) if is_chat(page) else None
+        if box:
+            status("connected")
+            return box.last
+        if needs_login(page) and not reported:
+            status("needs login — sign in in the existing browser window; waiting")
+            page.bring_to_front()
+            reported = True
+        if time.monotonic() >= end:
+            if needs_login(page):
+                die("needs login: sign in in the existing browser window, then retry", 3)
+            die("chat input not found: check the browser, or run: cop probe", 3)
+        page.wait_for_timeout(300)
+
+
+def snapshot(page, sel):
+    """Keep a separate baseline for each selector; generic articles may be users."""
+    values = {}
+    for query in sel.get("assistant", []) + sel["reply"]:
+        values[query] = page.locator(query).evaluate_all("""nodes => nodes
+            .filter(n => n.getClientRects().length && !n.closest(
+                '[data-message-author-role=user], [data-author=user]'))
+            .map(n => { const c = n.cloneNode(true);
+                c.querySelectorAll('button, [role=button]').forEach(b => b.remove());
+                return (c.textContent || '').trim(); })""")
+    return values
+
+
+def newest(before, after, prompt):
+    normalize = lambda text: " ".join(text.split())
+    for query, texts in after.items():
+        old = before.get(query, [])
+        for index in range(len(texts) - 1, -1, -1):
+            text = texts[index]
+            if text and normalize(text) != normalize(prompt) and (index >= len(old) or text != old[index]):
+                return text
+    return ""
 
 
 # >>> read the system clipboard from the page, else from windows <<< #
@@ -104,19 +179,26 @@ def clip(page):
 
 
 # >>> newest reply as markdown via its copy button, else as plain text <<< #
-def reply(page, sel):
+def reply(page, sel, fallback=None, copy_after=None):
     btn = find(page, sel["copy"])
-    if btn:
+    if btn and (copy_after is None or btn.count() > copy_after):
         try:
+            previous = clip(page)
             page.evaluate("t => navigator.clipboard.writeText(t)", MARK)
+            previous = MARK
+        except Exception:
+            previous = clip(page)
+        try:
+            btn.last.click(timeout=2000)
+            for _ in range(20):
+                text = clip(page)
+                if text and text != MARK and text != previous:
+                    return text
+                page.wait_for_timeout(100)
         except Exception:
             pass
-        btn.last.click()
-        for _ in range(20):
-            text = clip(page)
-            if text and text != MARK:
-                return text
-            time.sleep(0.1)
+    if fallback is not None:
+        return fallback
     box = find(page, sel["reply"])
     if not box:
         die("no reply found, run: cop probe", 5)
@@ -124,27 +206,45 @@ def reply(page, sel):
 
 
 # >>> send one prompt and wait until the reply has finished <<< #
-def ask(page, sel, prompt, timeout):
-    box = find(page, sel["input"], wait=60, visible=True)
-    if not box:
-        die("chat input not found: sign in inside the edge window, or run: cop probe", 3)
+def ask(page, sel, prompt, timeout, url_file=None):
+    box = ready(page, sel)
     before = count(page, sel["copy"])
-    box = box.last
+    baseline = snapshot(page, sel)
     box.click()
     box.fill(prompt)
     page.keyboard.press("Enter")
-    start, seen, gone = time.time(), False, None
-    while time.time() - start < timeout:
+    status("waiting for response — Ctrl+C to cancel")
+    start = changed = time.monotonic()
+    last, copied = "", False
+    settle = float(os.environ.get("COP_SETTLE", "3"))
+    stream = os.environ.get("COP_STREAM") == "1"
+    streamed = False
+    while time.monotonic() - start < timeout:
+        if url_file and is_chat(page):
+            Path(url_file).write_text(page.url, encoding="utf-8")
+        if needs_login(page):
+            die("needs login: the session expired; sign in in the existing browser window", 3)
         busy = find(page, sel["stop"], visible=True) is not None
-        if busy:
-            seen, gone = True, None
-        elif count(page, sel["copy"]) > before:
-            return reply(page, sel)
-        elif seen:
-            gone = gone or time.time()
-            if time.time() - gone > 5:
-                return reply(page, sel)
-        time.sleep(0.4)
+        text = newest(baseline, snapshot(page, sel), prompt)
+        has_copy = count(page, sel["copy"]) > before
+        if text != last or has_copy != copied or busy:
+            changed = time.monotonic()
+        if stream and text and text != last:
+            if not streamed:
+                print("\n", end="", file=sys.stderr, flush=True)
+            delta = text[len(last):] if text.startswith(last) else "\n" + text
+            print(delta, end="", file=sys.stderr, flush=True)
+            streamed = True
+        last, copied = text, has_copy
+        if not busy and (text or has_copy) and time.monotonic() - changed >= settle:
+            answer = reply(page, sel, fallback=text or None, copy_after=before)
+            if streamed:
+                print(file=sys.stderr, flush=True)
+            elif stream:
+                print(answer, file=sys.stderr, flush=True)
+            status("response received")
+            return answer
+        page.wait_for_timeout(200)
     die("timed out waiting for the reply", 4)
 
 
@@ -161,22 +261,40 @@ def main():
     ak.add_argument("--url-file")
     ak.add_argument("--timeout", type=float, default=float(os.environ.get("COP_TIMEOUT", 600)))
     sub.add_parser("last")
+    sub.add_parser("status")
     pr = sub.add_parser("probe")
     pr.add_argument("file")
     a = ap.parse_args()
 
     sel = selectors()
     with sync_playwright() as pw:
-        page = connect(pw)
+        page = connect(pw, create=a.cmd != "status")
         if a.cmd == "open":
-            goto(page, a.url)
+            goto(page, a.url, fresh=not a.url)
             print(page.url)
+        elif a.cmd == "status":
+            if needs_login(page):
+                print("needs login — sign in in the existing browser window")
+                return
+            print("connected" if find(page, sel["input"], visible=True) else "browser connected; chat input not ready (run: cop probe)")
         elif a.cmd == "ask":
             prompt = sys.stdin.read().strip()
             if not prompt:
                 die("empty prompt")
             goto(page, a.url)
-            text = ask(page, sel, prompt, a.timeout)
+            ready(page, sel)
+            # Authentication may have redirected us away from the saved chat.
+            goto(page, a.url)
+            try:
+                text = ask(page, sel, prompt, a.timeout, a.url_file)
+            except KeyboardInterrupt:
+                stop = find(page, sel["stop"], visible=True)
+                if stop:
+                    try:
+                        stop.last.click(timeout=2000)
+                    except Exception:
+                        pass
+                die("cancelled", 130)
             if a.url_file:
                 Path(a.url_file).write_text(page.url, encoding="utf-8")
             print(text)
@@ -189,4 +307,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        die("cancelled", 130)

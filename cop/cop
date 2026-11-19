@@ -170,20 +170,23 @@ compose() {
 }
 
 # >>> send a prompt in the current session <<< #
-send() {
+send() (
   local prompt=$1 name lock=$COP_HOME/lock
   [[ -n ${prompt//[[:space:]]/} ]] || return 0
   name=$(current || true)
   if [[ -z $name ]] || ! has "$name"; then cmd_new >/dev/null; name=$(current); fi
   up
   mkdir "$lock" 2>/dev/null || die "another prompt is running (remove $lock if stale)"
-  local rc=0
-  printf '%s' "$prompt" | py ask --url "$(url_of "$name")" --url-file "$(winpath "$COP_HOME/url")" >"$LAST" || rc=$?
-  rmdir "$lock"
+  local rc=0 result
+  result=$(mktemp "$COP_HOME/reply.XXXXXX")
+  trap 'rm -f "$result" "$result.url"; rmdir "$lock" 2>/dev/null || true' EXIT
+  trap 'exit 130' INT
+  printf '%s' "$prompt" | py ask --url "$(url_of "$name")" --url-file "$(winpath "$result.url")" >"$result" || rc=$?
+  [[ ! -s $result.url ]] || set_url "$name" "$(cat "$result.url")"
   ((rc == 0)) || return "$rc"
-  set_url "$name" "$(cat "$COP_HOME/url")"
-  render "$LAST"
-}
+  mv "$result" "$LAST"
+  [[ ${COP_STREAM:-0} == 1 ]] || render "$LAST"
+)
 
 # >>> cop ask TEXT, piped stdin, or editor <<< #
 cmd_ask() {
@@ -198,20 +201,7 @@ cmd_ask() {
 
 # >>> interactive loop in the current session <<< #
 cmd_chat() {
-  [[ -n $(current || true) ]] || cmd_use || true
-  [[ -n $(current || true) ]] || cmd_new
-  echo "session: $(current)   :e editor  :u switch  :n new  :q quit"
-  local line
-  while IFS= read -erp "$(current)> " line; do
-    history -s "$line"
-    case $line in
-      :q | :quit) break ;;
-      :e) send "$(compose)" ;;
-      :u) cmd_use || true ;;
-      :n*) cmd_new ${line#:n} ;;
-      *) send "$line" || true ;;
-    esac
-  done
+  COP_HOME=$(winpath "$COP_HOME") pyrun "$(winpath "$DIR/repl.py")"
 }
 
 # >>> usage <<< #
@@ -219,7 +209,7 @@ usage() {
   cat <<EOF
 cop - Microsoft 365 Copilot chat in the terminal
 
-  cop                    chat loop in the current session
+  cop                    interactive chat (history, multiline, :help)
   cop ask [TEXT]         one prompt (TEXT, piped stdin, or \$EDITOR)
   cop TEXT...            same as: cop ask TEXT
   cop new [NAME]         start a session and switch to it
@@ -229,6 +219,7 @@ cop - Microsoft 365 Copilot chat in the terminal
   cop delete [NAME...]   forget sessions (fzf multi-select, or 'all')
   cop last               show the last reply again
   cop up                 open the persistent edge window
+  cop status             check connection/login without opening a window
   cop probe              dump the page tree to fix selectors
 EOF
 }
@@ -245,6 +236,7 @@ case ${1:-} in
   chat) cmd_chat ;;
   last) [[ -s $LAST ]] && render "$LAST" || die "no reply yet" ;;
   up) up; echo "edge ready on port $COP_PORT" ;;
+  status) alive || die "browser not running; run: cop up"; py status ;;
   probe) up; py probe "$(winpath "$COP_HOME/probe.txt")" ;;
   *) cmd_ask "$@" ;;
 esac

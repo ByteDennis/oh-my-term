@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DIR=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+bin=${LAB_PYTHON:-}
+[[ -n $bin ]] || bin=$(command -v python || command -v python3 || command -v py) || {
+  printf 'lab: python not found; set LAB_PYTHON\n' >&2; exit 1;
+}
+script=$DIR/lab.py
+command -v cygpath >/dev/null && script=$(cygpath -m "$script")
+exec "$bin" "$script" "$@"

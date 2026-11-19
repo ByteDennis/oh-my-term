@@ -1,0 +1,13 @@
+services:
+  metadata:
+    build: .
+    ports:
+      - "127.0.0.1:8127:8000"
+    environment:
+      META_DB: /app/data/catalog.sqlite
+      META_ADMIN_PASSWORD: ${META_ADMIN_PASSWORD:-}
+      META_SECURE_COOKIE: ${META_SECURE_COOKIE:-0}
+    volumes:
+      - catalog:/app/data
+volumes:
+  catalog:
