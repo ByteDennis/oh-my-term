@@ -1,0 +1,111 @@
+Create an editable, two-slide English PowerPoint report for a metadata catalog called “Datasaurus”.
+
+Audience: business managers.
+Purpose: explain the website structure, connect its capabilities to revenue, cost and risk, and report progress.
+
+Use plain business English. Keep the slides concise and formal. Avoid slogans, promotional language, “POC”, “expected”, “we hope”, approval-request sections, and unnecessary explanations. Put supporting detail in speaker notes.
+
+DESIGN
+
+- Format: 16:9 widescreen.
+- White background, dark navy text, restrained purple accents.
+- Arial or a similar standard business font.
+- Titles around 30 pt; body text 12–16 pt.
+- Use native, editable PowerPoint shapes, text and arrows.
+- Keep generous spacing and consistent alignment.
+- Do not turn the entire slide into a single image.
+
+SLIDE 1
+
+Title: “Data catalog”
+Subtitle: “Site structure and business use”
+Small brand label: “DATASAURUS”
+
+Layout:
+- Left approximately two-thirds: a simplified website outline.
+- Right approximately one-third: three business-impact boxes.
+- Connect relevant website sections to the impact boxes with arrows.
+
+Website outline:
+Draw a browser-style frame with:
+1. A top bar labeled “Datasaurus”.
+2. A left sidebar labeled “Catalog”, containing “Search tables” and example navigation items: Orders, Customers, Revenue.
+3. A main area labeled “Selected table”, with a small owner/business-definition summary.
+4. Five stacked section rows:
+
+Overview — Table purpose and ownership
+Attributes — Field definitions and calculations
+Lineage — Upstream and downstream dependencies
+Quality — Checks, exceptions and run history
+Impact — Affected teams and points of contact
+
+At the bottom of the frame, place “Create time” on the left and “Update time” on the right.
+
+Business-impact boxes:
+
+Revenue — green accent
+Question: “Which definition should sales and finance use?”
+Value: “Support consistent growth and pricing decisions.”
+
+Cost — blue accent
+Question: “Can teams trace and reuse information with less manual work?”
+Value: “Reduce duplicate analysis and investigation.”
+
+Risk — muted amber accent
+Question: “Who is affected by a change or a failed quality check?”
+Value: “Identify reporting exposure before release.”
+
+Arrow connections:
+- Overview and Attributes → Revenue
+- Lineage → Cost
+- Quality and Impact → Risk
+
+Speaker notes:
+Explain each view briefly. Describe revenue, cost and risk as business value to validate, not measured outcomes. Do not invent financial benefits or claim that the real Databricks connection is complete.
+
+SLIDE 2
+
+Title: “Progress and next steps”
+Subtitle: “Current delivery, next week’s work and business impact”
+
+Use a clean four-column table:
+Workstream | Completed | Next week | Business impact
+
+Row 1:
+Workstream: Catalog & ownership
+Completed: Five linked views; owner details, copy-email links and admin editing.
+Next week: Review definitions and ownership for one sales or revenue dataset.
+Business impact: Revenue / cost — Shared definitions; less duplicate analysis.
+
+Row 2:
+Workstream: Lineage & change
+Completed: Table and field lineage; impact by attribute, team and contact.
+Next week: Validate one source-to-report path with the team that owns it.
+Business impact: Cost / risk — Faster investigation; clearer change dependencies.
+
+Row 3:
+Workstream: Quality reporting
+Completed: Compact DQX result view; filters, run history and metric mapping.
+Next week: Confirm UC tables and access; test one read-only results pull.
+Business impact: Cost / risk — Daily exception visibility; less manual monitoring.
+
+Below the table, add a restrained highlight:
+“Next milestone: one verified daily results feed from Unity Catalog.”
+
+Speaker notes:
+Distinguish implemented functionality from planned integration.
+The current application uses demonstration records. Real Unity Catalog connectivity and daily ingestion are not implemented.
+Suggested measures for the later pilot: time to find a definition, assess a field change, investigate a quality issue, and identify its owner.
+Do not invent improvement percentages, savings or revenue figures.
+
+COMMON FOOTER
+
+“[Team / owner] | Week of [date]”
+
+DELIVERABLES
+
+- Editable .pptx file
+- PDF export
+- A rendered PNG preview of each slide
+
+Render and inspect the actual PowerPoint before delivery. Check for clipped text, overlapping objects and unreadable labels.
